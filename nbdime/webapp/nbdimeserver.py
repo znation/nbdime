@@ -43,6 +43,9 @@ template_path = os.path.join(here, 'templates')
 class NbdimeHandler(JupyterHandler):
     def initialize(self, **params):
         self.params = params
+    
+    def __init__(self, **params):
+        self.params = params
 
     def base_args(self):
         fn = self.params.get('outputfilename', None)
@@ -51,7 +54,7 @@ class NbdimeHandler(JupyterHandler):
             'savable': fn is not None,
             'baseUrl': self.nbdime_base_url,
             'hideUnchanged': self.params.get('hide_unchanged', True),
-            'mathjaxUrl': self.mathjax_url,
+            'mathjaxUrl': "https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js",
             'mathjaxConfig': self.mathjax_config,
         }
         if fn:
@@ -66,8 +69,14 @@ class NbdimeHandler(JupyterHandler):
             (etype, value, traceback) = exc_info
             if etype == web.HTTPError:
                 self.set_header('Content-Type', 'text/plain')
-                return self.finish(str(value))
-        return super(NbdimeHandler, self).write_error(status_code, **kwargs)
+                print(self.finish(str(value)), file=sys.stderr)
+                return
+        print(kwargs, file=sys.stderr)
+        return
+    
+    def write(self, **kwargs):
+        print(kwargs)
+        return
 
     def read_notebook(self, arg, fail_on_empty=True):
         # Currently assuming arg is a filename relative to
@@ -124,10 +133,11 @@ class NbdimeHandler(JupyterHandler):
 
     @property
     def nbdime_base_url(self):
+        base_url = "/"
         relative = self.params.get('nbdime_relative_base_url', None)
         if relative is None:
-            return self.base_url
-        return url_path_join(self.base_url, relative)
+            return base_url
+        return url_path_join(base_url, relative)
 
     @property
     def curdir(self):
@@ -438,18 +448,15 @@ def init_app(on_port=None, closable=False, **params):
 
 
 def main_server(on_port=None, closable=False, **params):
-    app, server = init_app(on_port, closable, **params)
-    io_loop = ioloop.IOLoop.current()
-    if sys.platform.startswith('win'):
-        # workaround for tornado on Windows:
-        # add no-op to wake every 5s
-        # to handle signals that may be ignored by the inner loop
-        pc = ioloop.PeriodicCallback(lambda : None, 5000)
-        pc.start()
-    io_loop.start()
-    # Clean up after server:
-    server.stop()
-    return app.exit_code
+    handler = MainDiffHandler()
+    args = handler.base_args()
+    # TODO handle base/remote
+    args['base'] = ''
+    args['remote'] = ''
+    env = Environment(loader=FileSystemLoader([template_path]), autoescape=False)
+    template = env.get_template('diff.html')
+    print(template.render(config_data=args))
+    return 0
 
 
 def _build_arg_parser():
